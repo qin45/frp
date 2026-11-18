@@ -57,9 +57,23 @@ type V2SystemPruneResp struct {
 }
 
 type V2UserResp struct {
-	User        string `json:"user"`
-	ClientCount int    `json:"clientCount"`
-	ProxyCount  int    `json:"proxyCount"`
+	User            string `json:"user"`
+	ClientCount     int    `json:"clientCount"`
+	ProxyCount      int    `json:"proxyCount"`
+	TodayTrafficIn  int64  `json:"todayTrafficIn"`
+	TodayTrafficOut int64  `json:"todayTrafficOut"`
+	CurConns        int64  `json:"curConns"`
+}
+
+type V2KickClientResp struct {
+	Key    string `json:"key"`
+	RunID  string `json:"runID"`
+	Kicked bool   `json:"kicked"`
+}
+
+type V2KickUserResp struct {
+	User   string `json:"user"`
+	Kicked int    `json:"kicked"`
 }
 
 type V2ClientDetailResp struct {

@@ -98,6 +98,23 @@ func (f *fakeStatsCollector) PruneOfflineProxies() (int, int) {
 	return cleared, total
 }
 
+type fakeKicker struct {
+	kickedRunIDs []string
+	kickedUsers  []string
+	runResult    bool
+	userResult   int
+}
+
+func (f *fakeKicker) KickByRunID(runID string) bool {
+	f.kickedRunIDs = append(f.kickedRunIDs, runID)
+	return f.runResult
+}
+
+func (f *fakeKicker) KickByUser(user string) int {
+	f.kickedUsers = append(f.kickedUsers, user)
+	return f.userResult
+}
+
 func TestAPIV2SystemInfoEnvelope(t *testing.T) {
 	oldStatsCollector := mem.StatsCollector
 	mem.StatsCollector = &fakeStatsCollector{
@@ -137,7 +154,7 @@ func TestAPIV2SystemInfoEnvelope(t *testing.T) {
 				Force: true,
 			},
 		},
-	}, registry.NewClientRegistry(), serverproxy.NewManager())
+	}, registry.NewClientRegistry(), serverproxy.NewManager(), nil)
 	router := newV2TestRouter(controller)
 
 	resp := performRequest(router, "/api/v2/system/info")
@@ -226,7 +243,7 @@ func TestAPIV2SystemPruneOfflineProxies(t *testing.T) {
 		mem.StatsCollector = oldStatsCollector
 	})
 
-	controller := NewController(&v1.ServerConfig{}, registry.NewClientRegistry(), serverproxy.NewManager())
+	controller := NewController(&v1.ServerConfig{}, registry.NewClientRegistry(), serverproxy.NewManager(), nil)
 	router := newV2TestRouter(controller)
 
 	resp := performRequestWithMethod(router, http.MethodPost, "/api/v2/system/prune?type=offline_proxies")
@@ -380,7 +397,7 @@ func TestAPIV2ClientDetailEncodedKey(t *testing.T) {
 
 	clientRegistry := registry.NewClientRegistry()
 	clientRegistry.Register("url", "client/a?b#c", "run-url", "url-host", "1.0.0", "127.0.0.4", "v2")
-	controller := NewController(&v1.ServerConfig{}, clientRegistry, serverproxy.NewManager())
+	controller := NewController(&v1.ServerConfig{}, clientRegistry, serverproxy.NewManager(), nil)
 	router := newV2TestRouter(controller)
 
 	encodedKey := url.PathEscape("url.client/a?b#c")
@@ -394,6 +411,61 @@ func TestAPIV2ClientDetailEncodedKey(t *testing.T) {
 	}
 	if encodedResp.Data.Status.CurConns != 7 || encodedResp.Data.Status.ProxyCount != 1 {
 		t.Fatalf("encoded client detail status mismatch: %#v", encodedResp.Data.Status)
+	}
+}
+
+func TestAPIV2KickClientAndUser(t *testing.T) {
+	clientRegistry := registry.NewClientRegistry()
+	clientRegistry.Register("alice", "client-a", "run-a", "alice-host", "1.0.0", "127.0.0.2", "v2")
+	clientRegistry.Register("bob", "client-b", "run-b", "bob-host", "1.0.0", "127.0.0.3", "v2")
+	clientRegistry.Register("charlie", "client-c", "run-c", "charlie-host", "1.0.0", "127.0.0.4", "v2")
+	clientRegistry.MarkOfflineByRunID("run-c")
+
+	kicker := &fakeKicker{runResult: true, userResult: 1}
+	controller := NewController(&v1.ServerConfig{}, clientRegistry, serverproxy.NewManager(), kicker)
+	router := newV2TestRouter(controller)
+
+	key := url.PathEscape("alice.client-a")
+	resp := performRequestWithMethod(router, http.MethodPost, "/api/v2/clients/"+key+"/kick")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("kick client status mismatch, want %d got %d, body: %s", http.StatusOK, resp.Code, resp.Body.String())
+	}
+	kickResp := decodeResponse[v2EnvelopeForTest[model.V2KickClientResp]](t, resp)
+	if !kickResp.Data.Kicked || kickResp.Data.Key != "alice.client-a" || kickResp.Data.RunID != "run-a" {
+		t.Fatalf("kick client response mismatch: %#v", kickResp.Data)
+	}
+	if len(kicker.kickedRunIDs) != 1 || kicker.kickedRunIDs[0] != "run-a" {
+		t.Fatalf("kicker run ids mismatch: %#v", kicker.kickedRunIDs)
+	}
+
+	offlineKey := url.PathEscape("charlie.client-c")
+	resp = performRequestWithMethod(router, http.MethodPost, "/api/v2/clients/"+offlineKey+"/kick")
+	if resp.Code != http.StatusConflict {
+		t.Fatalf("kick offline client status mismatch, want %d got %d", http.StatusConflict, resp.Code)
+	}
+
+	resp = performRequestWithMethod(router, http.MethodPost, "/api/v2/clients/"+url.PathEscape("nobody.missing")+"/kick")
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("kick unknown client status mismatch, want %d got %d", http.StatusNotFound, resp.Code)
+	}
+
+	resp = performRequestWithMethod(router, http.MethodPost, "/api/v2/users/alice/kick")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("kick user status mismatch, want %d got %d, body: %s", http.StatusOK, resp.Code, resp.Body.String())
+	}
+	userResp := decodeResponse[v2EnvelopeForTest[model.V2KickUserResp]](t, resp)
+	if userResp.Data.User != "alice" || userResp.Data.Kicked != 1 {
+		t.Fatalf("kick user response mismatch: %#v", userResp.Data)
+	}
+	if len(kicker.kickedUsers) != 1 || kicker.kickedUsers[0] != "alice" {
+		t.Fatalf("kicker users mismatch: %#v", kicker.kickedUsers)
+	}
+
+	noKickerController := NewController(&v1.ServerConfig{}, clientRegistry, serverproxy.NewManager(), nil)
+	noKickerRouter := newV2TestRouter(noKickerController)
+	resp = performRequestWithMethod(noKickerRouter, http.MethodPost, "/api/v2/users/alice/kick")
+	if resp.Code != http.StatusNotImplemented {
+		t.Fatalf("kick without kicker status mismatch, want %d got %d", http.StatusNotImplemented, resp.Code)
 	}
 }
 
@@ -463,10 +535,28 @@ func TestAPIV2ProxyListDetailAndUsers(t *testing.T) {
 		"alice": 2,
 		"bob":   1,
 	}
+	expectedTraffic := map[string]struct {
+		in    int64
+		out   int64
+		conns int64
+	}{
+		"":      {in: 10, out: 20, conns: 1},
+		"alice": {in: 30, out: 40, conns: 5},
+		"bob":   {},
+	}
 	for _, item := range userResp.Data.Items {
-		if item.ClientCount != 1 || item.ProxyCount != expectedProxyCounts[item.User] {
-			t.Fatalf("user counts mismatch: %#v", item)
+		want := expectedTraffic[item.User]
+		if item.ClientCount != 1 || item.ProxyCount != expectedProxyCounts[item.User] ||
+			item.TodayTrafficIn != want.in || item.TodayTrafficOut != want.out || item.CurConns != want.conns {
+			t.Fatalf("user stats mismatch: %#v", item)
 		}
+	}
+
+	resp = performRequest(router, "/api/v2/users?user=alice&page=1&pageSize=50")
+	filteredUserResp := decodeResponse[v2EnvelopeForTest[model.V2PageResp[model.V2UserResp]]](t, resp)
+	if filteredUserResp.Data.Total != 1 || len(filteredUserResp.Data.Items) != 1 ||
+		filteredUserResp.Data.Items[0].User != "alice" {
+		t.Fatalf("user exact filter mismatch: %#v", filteredUserResp.Data)
 	}
 }
 
@@ -488,7 +578,7 @@ func TestAPIV2ProxyTrafficEnvelopeSchemaAndHistory(t *testing.T) {
 		mem.StatsCollector = oldStatsCollector
 	})
 
-	controller := NewController(&v1.ServerConfig{}, registry.NewClientRegistry(), serverproxy.NewManager())
+	controller := NewController(&v1.ServerConfig{}, registry.NewClientRegistry(), serverproxy.NewManager(), nil)
 	router := newV2TestRouter(controller)
 
 	resp := performRequest(router, "/api/v2/proxies/ssh/traffic")
@@ -561,7 +651,7 @@ func TestAPIV2ProxyDetailAndTrafficEncodedName(t *testing.T) {
 		mem.StatsCollector = oldStatsCollector
 	})
 
-	controller := NewController(&v1.ServerConfig{}, registry.NewClientRegistry(), serverproxy.NewManager())
+	controller := NewController(&v1.ServerConfig{}, registry.NewClientRegistry(), serverproxy.NewManager(), nil)
 	router := newV2TestRouter(controller)
 	encodedName := url.PathEscape(name)
 
@@ -827,7 +917,7 @@ func newV2TestController(t *testing.T) *Controller {
 	clientRegistry.Register("bob", "client-b", "run-b", "bob-host", "1.0.0", "127.0.0.3", "v1")
 	clientRegistry.MarkOfflineByRunID("run-b")
 
-	return NewController(&v1.ServerConfig{}, clientRegistry, serverproxy.NewManager())
+	return NewController(&v1.ServerConfig{}, clientRegistry, serverproxy.NewManager(), nil)
 }
 
 func newV2TestRouter(controller *Controller) *mux.Router {
@@ -839,6 +929,8 @@ func newV2TestRouter(controller *Controller) *mux.Router {
 	encodedPathRouter := router.NewRoute().Subrouter()
 	encodedPathRouter.UseEncodedPath()
 	encodedPathRouter.HandleFunc("/api/v2/clients/{key}", httppkg.MakeHTTPHandlerFuncV2(controller.APIV2ClientDetail)).Methods(http.MethodGet)
+	encodedPathRouter.HandleFunc("/api/v2/clients/{key}/kick", httppkg.MakeHTTPHandlerFuncV2(controller.APIV2KickClient)).Methods(http.MethodPost)
+	encodedPathRouter.HandleFunc("/api/v2/users/{user}/kick", httppkg.MakeHTTPHandlerFuncV2(controller.APIV2KickUser)).Methods(http.MethodPost)
 	router.HandleFunc("/api/v2/proxies", httppkg.MakeHTTPHandlerFuncV2(controller.APIV2ProxyList)).Methods(http.MethodGet)
 	encodedPathRouter.HandleFunc("/api/v2/proxies/{name}/traffic", httppkg.MakeHTTPHandlerFuncV2(controller.APIV2ProxyTraffic)).Methods(http.MethodGet)
 	encodedPathRouter.HandleFunc("/api/v2/proxies/{name}", httppkg.MakeHTTPHandlerFuncV2(controller.APIV2ProxyDetail)).Methods(http.MethodGet)

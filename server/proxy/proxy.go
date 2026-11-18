@@ -317,10 +317,24 @@ func (pxy *BaseProxy) handleUserTCPConnection(userConn net.Conn) {
 	name := pxy.GetName()
 	proxyType := cfg.Type
 	metrics.Server.OpenConnection(name, proxyType)
-	inCount, outCount, _ := pxy.joinUserConnection(local, userConn, proxyType, xl)
-	metrics.Server.CloseConnection(name, proxyType)
-	metrics.Server.AddTrafficIn(name, proxyType, inCount)
-	metrics.Server.AddTrafficOut(name, proxyType, outCount)
+
+	if proxyType == string(v1.ProxyTypeSUDP) {
+		// The mixed SUDP bridge counts decoded payload bytes per message. Keep
+		// the existing close-time reporting for it.
+		inCount, outCount, _ := pxy.joinUserConnection(local, userConn, proxyType, xl)
+		metrics.Server.AddTrafficIn(name, proxyType, inCount)
+		metrics.Server.AddTrafficOut(name, proxyType, outCount)
+		metrics.Server.CloseConnection(name, proxyType)
+	} else {
+		interval := time.Duration(pxy.serverCfg.TrafficStatsUpdateInterval) * time.Second
+		reporter := newTrafficStatsReporter(name, proxyType, interval, func() {
+			metrics.Server.CloseConnection(name, proxyType)
+		})
+		defer reporter.Close()
+
+		countedLocal := &trafficStatsRWC{ReadWriteCloser: local, reporter: reporter}
+		_, _, _ = pxy.joinUserConnection(countedLocal, userConn, proxyType, xl)
+	}
 	xl.Debugf("join connections closed")
 }
 

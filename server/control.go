@@ -284,6 +284,36 @@ func (cm *ControlManager) GetByID(runID string) (ctl *Control, ok bool) {
 	return ctl, true
 }
 
+// KickByRunID closes the current running control for runID. The control
+// worker closes all of its proxies and work connections asynchronously.
+func (cm *ControlManager) KickByRunID(runID string) bool {
+	ctl, ok := cm.GetByID(runID)
+	if !ok {
+		return false
+	}
+	ctl.xl.Infof("client kicked by admin api")
+	_ = ctl.Close()
+	return true
+}
+
+// KickByUser closes every online control belonging to user and returns the
+// number of controls that were kicked.
+func (cm *ControlManager) KickByUser(user string) int {
+	if cm.registry == nil {
+		return 0
+	}
+	kicked := 0
+	for _, info := range cm.registry.List() {
+		if !info.Online || info.User != user || info.RunID == "" {
+			continue
+		}
+		if cm.KickByRunID(info.RunID) {
+			kicked++
+		}
+	}
+	return kicked
+}
+
 // admitVisitorByRunID commits a visitor admission against the current running
 // control while its run and lifecycle ownership are held. The callback must
 // only perform the in-memory, buffered visitor admission.

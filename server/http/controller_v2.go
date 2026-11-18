@@ -122,11 +122,18 @@ func (c *Controller) APIV2UserList(ctx *httppkg.Context) (any, error) {
 	for _, proxyInfo := range c.listV2ProxyStats("") {
 		item := getOrCreateV2User(userStats, proxyInfo.User)
 		item.ProxyCount++
+		item.TodayTrafficIn += proxyInfo.TodayTrafficIn
+		item.TodayTrafficOut += proxyInfo.TodayTrafficOut
+		item.CurConns += proxyInfo.CurConns
 	}
 
+	userFilter, filterByUser := queryValue(ctx, "user")
 	q := strings.ToLower(ctx.Query("q"))
 	items := make([]model.V2UserResp, 0, len(userStats))
 	for _, item := range userStats {
+		if filterByUser && item.User != userFilter {
+			continue
+		}
 		if q != "" && !strings.Contains(strings.ToLower(item.User), q) {
 			continue
 		}
@@ -137,6 +144,43 @@ func (c *Controller) APIV2UserList(ctx *httppkg.Context) (any, error) {
 	})
 
 	return buildV2PageResp(items, page, pageSize), nil
+}
+
+// POST /api/v2/clients/{key}/kick
+func (c *Controller) APIV2KickClient(ctx *httppkg.Context) (any, error) {
+	key, err := decodeV2PathParam(ctx, "key", "client key")
+	if err != nil {
+		return nil, err
+	}
+	if c.clientRegistry == nil {
+		return nil, fmt.Errorf("client registry unavailable")
+	}
+	info, ok := c.clientRegistry.GetByKey(key)
+	if !ok {
+		return nil, httppkg.NewError(http.StatusNotFound, fmt.Sprintf("client %s not found", key))
+	}
+	if !info.Online || info.RunID == "" {
+		return nil, httppkg.NewError(http.StatusConflict, fmt.Sprintf("client %s is offline", key))
+	}
+	if c.kicker == nil {
+		return nil, httppkg.NewError(http.StatusNotImplemented, "client kicker unavailable")
+	}
+	if !c.kicker.KickByRunID(info.RunID) {
+		return nil, httppkg.NewError(http.StatusConflict, fmt.Sprintf("client %s is not running", key))
+	}
+	return model.V2KickClientResp{Key: key, RunID: info.RunID, Kicked: true}, nil
+}
+
+// POST /api/v2/users/{user}/kick
+func (c *Controller) APIV2KickUser(ctx *httppkg.Context) (any, error) {
+	user, err := decodeV2PathParam(ctx, "user", "user")
+	if err != nil {
+		return nil, err
+	}
+	if c.kicker == nil {
+		return nil, httppkg.NewError(http.StatusNotImplemented, "client kicker unavailable")
+	}
+	return model.V2KickUserResp{User: user, Kicked: c.kicker.KickByUser(user)}, nil
 }
 
 // /api/v2/clients

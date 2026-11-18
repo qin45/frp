@@ -19,6 +19,7 @@ import (
 	"net"
 	"reflect"
 	"strings"
+	"time"
 
 	libio "github.com/fatedier/golib/io"
 
@@ -143,17 +144,14 @@ func (pxy *HTTPProxy) GetRealConn(remoteAddr string) (workConn net.Conn, err err
 	}
 
 	workConn = netpkg.WrapReadWriteCloserToConn(rwc, tmpConn)
-	workConn = netpkg.WrapStatsConn(workConn, pxy.updateStatsAfterClosedConn)
-	metrics.Server.OpenConnection(pxy.GetName(), pxy.GetConfigurer().GetBaseConfig().Type)
-	return
-}
-
-func (pxy *HTTPProxy) updateStatsAfterClosedConn(totalRead, totalWrite int64) {
 	name := pxy.GetName()
 	proxyType := pxy.GetConfigurer().GetBaseConfig().Type
-	metrics.Server.CloseConnection(name, proxyType)
-	metrics.Server.AddTrafficIn(name, proxyType, totalWrite)
-	metrics.Server.AddTrafficOut(name, proxyType, totalRead)
+	interval := time.Duration(pxy.serverCfg.TrafficStatsUpdateInterval) * time.Second
+	reporter := newTrafficStatsReporter(name, proxyType, interval, func() {
+		metrics.Server.CloseConnection(name, proxyType)
+	})
+	metrics.Server.OpenConnection(name, proxyType)
+	return &trafficStatsConn{Conn: workConn, reporter: reporter}, nil
 }
 
 func (pxy *HTTPProxy) Close() {

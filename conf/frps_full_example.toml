@@ -26,6 +26,12 @@ kcpBindPort = 7000
 # The default value of heartbeatTimeout is 90. Set negative value to disable it.
 # transport.heartbeatTimeout = 90
 
+# How often, in seconds, to flush traffic counters for active connections.
+# The default value 0 only updates counters after a connection closes.
+# Set to 1-5 to make long-lived connections visible in the dashboard,
+# Admin API and Prometheus metrics while they are still active.
+# trafficStatsUpdateIntervalSeconds = 0
+
 # Pool count in each proxy will keep no more than maxPoolCount.
 transport.maxPoolCount = 5
 

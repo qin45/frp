@@ -91,6 +91,10 @@ type ServerConfig struct {
 	// UDPPacketSize specifies the UDP packet size
 	// By default, this value is 1500
 	UDPPacketSize int64 `json:"udpPacketSize,omitempty"`
+	// TrafficStatsUpdateInterval specifies how often, in seconds, to flush
+	// traffic counters for active connections. The default value 0 only
+	// updates counters when a connection closes.
+	TrafficStatsUpdateInterval int64 `json:"trafficStatsUpdateIntervalSeconds,omitempty"`
 	// NatHoleAnalysisDataReserveHours specifies the hours to reserve nat hole analysis data.
 	NatHoleAnalysisDataReserveHours int64 `json:"natholeAnalysisDataReserveHours,omitempty"`
 

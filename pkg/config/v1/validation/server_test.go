@@ -23,6 +23,32 @@ import (
 	v1 "github.com/fatedier/frp/pkg/config/v1"
 )
 
+func TestValidateServerConfigTrafficStatsUpdateInterval(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		interval int64
+		wantErr  bool
+	}{
+		{name: "negative", interval: -1, wantErr: true},
+		{name: "zero", interval: 0},
+		{name: "positive", interval: 5},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := validServerConfigWithAuth(v1.AuthServerConfig{Method: v1.AuthMethodToken})
+			cfg.TrafficStatsUpdateInterval = tc.interval
+			require.NoError(t, cfg.Complete())
+
+			_, err := NewConfigValidator(nil).ValidateServerConfig(cfg)
+			if tc.wantErr {
+				require.ErrorContains(t, err, "invalid trafficStatsUpdateIntervalSeconds")
+				require.ErrorContains(t, err, "must be non-negative")
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestValidateServerConfigMaxPoolCount(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
