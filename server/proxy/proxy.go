@@ -548,7 +548,12 @@ func NewProxy(ctx context.Context, options *Options) (pxy Proxy, err error) {
 	var limiter *rate.Limiter
 	limitBytes := configurer.GetBaseConfig().Transport.BandwidthLimit.Bytes()
 	if limitBytes > 0 && configurer.GetBaseConfig().Transport.BandwidthLimitMode == types.BandwidthLimitModeServer {
-		limiter = limit.NewBandwidthLimiter(limitBytes)
+		if options.UserInfo.User != "" && options.ResourceController != nil && options.ResourceController.UserLimiters != nil {
+			// Share one limiter across all proxies belonging to the same user.
+			limiter = options.ResourceController.UserLimiters.GetOrCreate(options.UserInfo.User, limitBytes)
+		} else {
+			limiter = limit.NewBandwidthLimiter(limitBytes)
+		}
 	}
 
 	basePxy := BaseProxy{

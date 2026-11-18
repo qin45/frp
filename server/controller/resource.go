@@ -17,6 +17,7 @@ package controller
 import (
 	"github.com/fatedier/frp/pkg/nathole"
 	plugin "github.com/fatedier/frp/pkg/plugin/server"
+	"github.com/fatedier/frp/pkg/util/limit"
 	"github.com/fatedier/frp/pkg/util/tcpmux"
 	"github.com/fatedier/frp/pkg/util/vhost"
 	"github.com/fatedier/frp/server/group"
@@ -61,6 +62,9 @@ type ResourceController struct {
 
 	// All server manager plugin
 	PluginManager *plugin.Manager
+
+	// Shared server-side bandwidth limiters, keyed by user.
+	UserLimiters *limit.UserLimiterManager
 }
 
 func (rc *ResourceController) Close() error {

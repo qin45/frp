@@ -183,6 +183,27 @@ func (c *Controller) APIV2KickUser(ctx *httppkg.Context) (any, error) {
 	return model.V2KickUserResp{User: user, Kicked: c.kicker.KickByUser(user)}, nil
 }
 
+// PUT /api/v2/users/{user}/bandwidth?bytesPerSecond=<n>
+func (c *Controller) APIV2SetUserBandwidth(ctx *httppkg.Context) (any, error) {
+	user, err := decodeV2PathParam(ctx, "user", "user")
+	if err != nil {
+		return nil, err
+	}
+	raw := ctx.Query("bytesPerSecond")
+	if raw == "" {
+		return nil, httppkg.NewError(http.StatusBadRequest, "missing bytesPerSecond")
+	}
+	bytesPerSecond, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || bytesPerSecond < 0 {
+		return nil, httppkg.NewError(http.StatusBadRequest, "bytesPerSecond must be a non-negative integer")
+	}
+	if c.userLimiters == nil {
+		return nil, httppkg.NewError(http.StatusNotImplemented, "user limiter unavailable")
+	}
+	c.userLimiters.Set(user, bytesPerSecond)
+	return model.V2SetUserBandwidthResp{User: user, BytesPerSecond: bytesPerSecond}, nil
+}
+
 // /api/v2/clients
 func (c *Controller) APIV2ClientList(ctx *httppkg.Context) (any, error) {
 	page, pageSize, err := parseV2PageParams(ctx)

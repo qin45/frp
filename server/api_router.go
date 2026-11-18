@@ -36,7 +36,7 @@ func (svr *Service) registerRouteHandlers(helper *httppkg.RouterRegisterHelper) 
 		subRouter.Handle("/metrics", promhttp.Handler())
 	}
 
-	apiController := adminapi.NewController(svr.cfg, svr.clientRegistry, svr.pxyManager, svr.ctlManager)
+	apiController := adminapi.NewController(svr.cfg, svr.clientRegistry, svr.pxyManager, svr.ctlManager, svr.rc.UserLimiters)
 
 	// apis
 	subRouter.HandleFunc("/api/serverinfo", httppkg.MakeHTTPHandlerFunc(apiController.APIServerInfo)).Methods("GET")
@@ -57,6 +57,7 @@ func (svr *Service) registerRouteHandlers(helper *httppkg.RouterRegisterHelper) 
 	v2EncodedPathRouter.HandleFunc("/api/v2/clients/{key}", httppkg.MakeHTTPHandlerFuncV2(apiController.APIV2ClientDetail)).Methods("GET")
 	v2EncodedPathRouter.HandleFunc("/api/v2/clients/{key}/kick", httppkg.MakeHTTPHandlerFuncV2(apiController.APIV2KickClient)).Methods("POST")
 	v2EncodedPathRouter.HandleFunc("/api/v2/users/{user}/kick", httppkg.MakeHTTPHandlerFuncV2(apiController.APIV2KickUser)).Methods("POST")
+	v2EncodedPathRouter.HandleFunc("/api/v2/users/{user}/bandwidth", httppkg.MakeHTTPHandlerFuncV2(apiController.APIV2SetUserBandwidth)).Methods("PUT")
 	subRouter.HandleFunc("/api/v2/proxies", httppkg.MakeHTTPHandlerFuncV2(apiController.APIV2ProxyList)).Methods("GET")
 	v2EncodedPathRouter.HandleFunc("/api/v2/proxies/{name}/traffic", httppkg.MakeHTTPHandlerFuncV2(apiController.APIV2ProxyTraffic)).Methods("GET")
 	v2EncodedPathRouter.HandleFunc("/api/v2/proxies/{name}", httppkg.MakeHTTPHandlerFuncV2(apiController.APIV2ProxyDetail)).Methods("GET")

@@ -46,6 +46,7 @@ import (
 	"github.com/fatedier/frp/pkg/ssh"
 	"github.com/fatedier/frp/pkg/transport"
 	httppkg "github.com/fatedier/frp/pkg/util/http"
+	"github.com/fatedier/frp/pkg/util/limit"
 	"github.com/fatedier/frp/pkg/util/log"
 	netpkg "github.com/fatedier/frp/pkg/util/net"
 	"github.com/fatedier/frp/pkg/util/tcpmux"
@@ -167,6 +168,7 @@ func NewService(cfg *v1.ServerConfig) (*Service, error) {
 		pluginManager:  plugin.NewManager(),
 		rc: &controller.ResourceController{
 			VisitorManager: visitor.NewManager(),
+			UserLimiters:   limit.NewUserLimiterManager(),
 		},
 		sshTunnelListener: netpkg.NewInternalListener(),
 		httpVhostRouter:   vhost.NewRouters(),

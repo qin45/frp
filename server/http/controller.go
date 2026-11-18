@@ -39,6 +39,7 @@ type Controller struct {
 	clientRegistry *registry.ClientRegistry
 	pxyManager     ProxyManager
 	kicker         ClientKicker
+	userLimiters   UserLimiterManager
 }
 
 type ProxyManager interface {
@@ -51,17 +52,24 @@ type ClientKicker interface {
 	KickByUser(user string) int
 }
 
+// UserLimiterManager is implemented by limit.UserLimiterManager.
+type UserLimiterManager interface {
+	Set(user string, bytesPerSecond int64)
+}
+
 func NewController(
 	serverCfg *v1.ServerConfig,
 	clientRegistry *registry.ClientRegistry,
 	pxyManager ProxyManager,
 	kicker ClientKicker,
+	userLimiters UserLimiterManager,
 ) *Controller {
 	return &Controller{
 		serverCfg:      serverCfg,
 		clientRegistry: clientRegistry,
 		pxyManager:     pxyManager,
 		kicker:         kicker,
+		userLimiters:   userLimiters,
 	}
 }
 

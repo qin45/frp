@@ -76,6 +76,11 @@ type V2KickUserResp struct {
 	Kicked int    `json:"kicked"`
 }
 
+type V2SetUserBandwidthResp struct {
+	User           string `json:"user"`
+	BytesPerSecond int64  `json:"bytesPerSecond"`
+}
+
 type V2ClientDetailResp struct {
 	ClientInfoResp
 	Status V2ClientStatusResp `json:"status"`

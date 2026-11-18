@@ -115,6 +115,20 @@ func (f *fakeKicker) KickByUser(user string) int {
 	return f.userResult
 }
 
+type fakeUserLimiter struct {
+	sets []struct {
+		user           string
+		bytesPerSecond int64
+	}
+}
+
+func (f *fakeUserLimiter) Set(user string, bytesPerSecond int64) {
+	f.sets = append(f.sets, struct {
+		user           string
+		bytesPerSecond int64
+	}{user: user, bytesPerSecond: bytesPerSecond})
+}
+
 func TestAPIV2SystemInfoEnvelope(t *testing.T) {
 	oldStatsCollector := mem.StatsCollector
 	mem.StatsCollector = &fakeStatsCollector{
@@ -154,7 +168,7 @@ func TestAPIV2SystemInfoEnvelope(t *testing.T) {
 				Force: true,
 			},
 		},
-	}, registry.NewClientRegistry(), serverproxy.NewManager(), nil)
+	}, registry.NewClientRegistry(), serverproxy.NewManager(), nil, nil)
 	router := newV2TestRouter(controller)
 
 	resp := performRequest(router, "/api/v2/system/info")
@@ -243,7 +257,7 @@ func TestAPIV2SystemPruneOfflineProxies(t *testing.T) {
 		mem.StatsCollector = oldStatsCollector
 	})
 
-	controller := NewController(&v1.ServerConfig{}, registry.NewClientRegistry(), serverproxy.NewManager(), nil)
+	controller := NewController(&v1.ServerConfig{}, registry.NewClientRegistry(), serverproxy.NewManager(), nil, nil)
 	router := newV2TestRouter(controller)
 
 	resp := performRequestWithMethod(router, http.MethodPost, "/api/v2/system/prune?type=offline_proxies")
@@ -397,7 +411,7 @@ func TestAPIV2ClientDetailEncodedKey(t *testing.T) {
 
 	clientRegistry := registry.NewClientRegistry()
 	clientRegistry.Register("url", "client/a?b#c", "run-url", "url-host", "1.0.0", "127.0.0.4", "v2")
-	controller := NewController(&v1.ServerConfig{}, clientRegistry, serverproxy.NewManager(), nil)
+	controller := NewController(&v1.ServerConfig{}, clientRegistry, serverproxy.NewManager(), nil, nil)
 	router := newV2TestRouter(controller)
 
 	encodedKey := url.PathEscape("url.client/a?b#c")
@@ -422,7 +436,7 @@ func TestAPIV2KickClientAndUser(t *testing.T) {
 	clientRegistry.MarkOfflineByRunID("run-c")
 
 	kicker := &fakeKicker{runResult: true, userResult: 1}
-	controller := NewController(&v1.ServerConfig{}, clientRegistry, serverproxy.NewManager(), kicker)
+	controller := NewController(&v1.ServerConfig{}, clientRegistry, serverproxy.NewManager(), kicker, nil)
 	router := newV2TestRouter(controller)
 
 	key := url.PathEscape("alice.client-a")
@@ -461,11 +475,44 @@ func TestAPIV2KickClientAndUser(t *testing.T) {
 		t.Fatalf("kicker users mismatch: %#v", kicker.kickedUsers)
 	}
 
-	noKickerController := NewController(&v1.ServerConfig{}, clientRegistry, serverproxy.NewManager(), nil)
+	noKickerController := NewController(&v1.ServerConfig{}, clientRegistry, serverproxy.NewManager(), nil, nil)
 	noKickerRouter := newV2TestRouter(noKickerController)
 	resp = performRequestWithMethod(noKickerRouter, http.MethodPost, "/api/v2/users/alice/kick")
 	if resp.Code != http.StatusNotImplemented {
 		t.Fatalf("kick without kicker status mismatch, want %d got %d", http.StatusNotImplemented, resp.Code)
+	}
+}
+
+func TestAPIV2SetUserBandwidth(t *testing.T) {
+	limiter := &fakeUserLimiter{}
+	controller := NewController(
+		&v1.ServerConfig{},
+		registry.NewClientRegistry(),
+		serverproxy.NewManager(),
+		nil,
+		limiter,
+	)
+	router := newV2TestRouter(controller)
+
+	resp := performRequestWithMethod(
+		router, http.MethodPut, "/api/v2/users/alice/bandwidth?bytesPerSecond=1250000",
+	)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("set bandwidth status mismatch, want %d got %d, body: %s", http.StatusOK, resp.Code, resp.Body.String())
+	}
+	bandwidthResp := decodeResponse[v2EnvelopeForTest[model.V2SetUserBandwidthResp]](t, resp)
+	if bandwidthResp.Data.User != "alice" || bandwidthResp.Data.BytesPerSecond != 1250000 {
+		t.Fatalf("set bandwidth response mismatch: %#v", bandwidthResp.Data)
+	}
+	if len(limiter.sets) != 1 || limiter.sets[0].user != "alice" || limiter.sets[0].bytesPerSecond != 1250000 {
+		t.Fatalf("limiter calls mismatch: %#v", limiter.sets)
+	}
+
+	resp = performRequestWithMethod(
+		router, http.MethodPut, "/api/v2/users/alice/bandwidth?bytesPerSecond=-1",
+	)
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("negative bandwidth status mismatch, want %d got %d", http.StatusBadRequest, resp.Code)
 	}
 }
 
@@ -578,7 +625,7 @@ func TestAPIV2ProxyTrafficEnvelopeSchemaAndHistory(t *testing.T) {
 		mem.StatsCollector = oldStatsCollector
 	})
 
-	controller := NewController(&v1.ServerConfig{}, registry.NewClientRegistry(), serverproxy.NewManager(), nil)
+	controller := NewController(&v1.ServerConfig{}, registry.NewClientRegistry(), serverproxy.NewManager(), nil, nil)
 	router := newV2TestRouter(controller)
 
 	resp := performRequest(router, "/api/v2/proxies/ssh/traffic")
@@ -651,7 +698,7 @@ func TestAPIV2ProxyDetailAndTrafficEncodedName(t *testing.T) {
 		mem.StatsCollector = oldStatsCollector
 	})
 
-	controller := NewController(&v1.ServerConfig{}, registry.NewClientRegistry(), serverproxy.NewManager(), nil)
+	controller := NewController(&v1.ServerConfig{}, registry.NewClientRegistry(), serverproxy.NewManager(), nil, nil)
 	router := newV2TestRouter(controller)
 	encodedName := url.PathEscape(name)
 
@@ -917,7 +964,7 @@ func newV2TestController(t *testing.T) *Controller {
 	clientRegistry.Register("bob", "client-b", "run-b", "bob-host", "1.0.0", "127.0.0.3", "v1")
 	clientRegistry.MarkOfflineByRunID("run-b")
 
-	return NewController(&v1.ServerConfig{}, clientRegistry, serverproxy.NewManager(), nil)
+	return NewController(&v1.ServerConfig{}, clientRegistry, serverproxy.NewManager(), nil, nil)
 }
 
 func newV2TestRouter(controller *Controller) *mux.Router {
@@ -931,6 +978,7 @@ func newV2TestRouter(controller *Controller) *mux.Router {
 	encodedPathRouter.HandleFunc("/api/v2/clients/{key}", httppkg.MakeHTTPHandlerFuncV2(controller.APIV2ClientDetail)).Methods(http.MethodGet)
 	encodedPathRouter.HandleFunc("/api/v2/clients/{key}/kick", httppkg.MakeHTTPHandlerFuncV2(controller.APIV2KickClient)).Methods(http.MethodPost)
 	encodedPathRouter.HandleFunc("/api/v2/users/{user}/kick", httppkg.MakeHTTPHandlerFuncV2(controller.APIV2KickUser)).Methods(http.MethodPost)
+	encodedPathRouter.HandleFunc("/api/v2/users/{user}/bandwidth", httppkg.MakeHTTPHandlerFuncV2(controller.APIV2SetUserBandwidth)).Methods(http.MethodPut)
 	router.HandleFunc("/api/v2/proxies", httppkg.MakeHTTPHandlerFuncV2(controller.APIV2ProxyList)).Methods(http.MethodGet)
 	encodedPathRouter.HandleFunc("/api/v2/proxies/{name}/traffic", httppkg.MakeHTTPHandlerFuncV2(controller.APIV2ProxyTraffic)).Methods(http.MethodGet)
 	encodedPathRouter.HandleFunc("/api/v2/proxies/{name}", httppkg.MakeHTTPHandlerFuncV2(controller.APIV2ProxyDetail)).Methods(http.MethodGet)
