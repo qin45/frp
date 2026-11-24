@@ -6,6 +6,9 @@
 
 [README](README.md) | [中文文档](README_zh.md)
 
+> **FireflyFrp fork:** This repository contains modifications for FireflyFrp.
+> See [FIREFLYFRP_MODIFICATIONS.md](FIREFLYFRP_MODIFICATIONS.md) for the change list and build notes.
+
 ## Sponsors
 
 frp is an open source project with its ongoing development made possible entirely by the support of our awesome sponsors. If you'd like to join them, please consider [sponsoring frp's development](https://github.com/sponsors/fatedier).

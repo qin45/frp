@@ -6,6 +6,9 @@
 
 [README](README.md) | [中文文档](README_zh.md)
 
+> **FireflyFrp fork：** 本仓库包含 FireflyFrp 的修改版本，修改说明见
+> [FIREFLYFRP_MODIFICATIONS.md](FIREFLYFRP_MODIFICATIONS.md)。
+
 frp 是一个专注于内网穿透的高性能的反向代理应用，支持 TCP、UDP、HTTP、HTTPS 等多种协议，且支持 P2P 通信。可以将内网服务以安全、便捷的方式通过具有公网 IP 节点的中转暴露到公网。
 
 ## Sponsors
